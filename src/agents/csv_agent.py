@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Dict, List, Any
+from typing import Dict, List
 import json
 import re
 
@@ -24,6 +24,12 @@ def clean_llm_json(raw_text: str) -> str:
 # Function to analyze CSV data
 # ----------------------------
 def analyze_csv_data(data: Dict[str, List[float]]) -> CSVOutput:
+    """
+    Analyze CSV data to calculate total revenue and the best quarter.
+    """
+    if not all(isinstance(x, (int, float)) for x in data["revenue"]):
+        raise ValueError("All revenue values must be numbers.")
+    
     total_revenue = sum(data["revenue"])
     best_quarter_index = data["revenue"].index(max(data["revenue"]))
     best_quarter = data["quarter"][best_quarter_index]

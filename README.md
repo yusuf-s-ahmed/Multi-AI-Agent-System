@@ -1,6 +1,15 @@
 # AI Agents Prototype
 
-This project is a prototype for AI agents that analyze CSV data and news sentiment. The agents utilize a language model to perform their tasks and return structured outputs.
+## Overview
+This project allows you to upload a CSV file, ask a question, and let AI agents process the data to provide insights.
+
+## How to Run
+1. Place your CSV file in the `data/` folder.
+2. Update the `file_path` and `question` variables in `src/orchestrator.py`.
+3. Run the program:
+   ```bash
+   python src/orchestrator.py
+   ```
 
 ## Project Structure
 
