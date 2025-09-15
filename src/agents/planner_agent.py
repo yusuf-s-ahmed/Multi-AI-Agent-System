@@ -1,3 +1,5 @@
+# planner_agent.py
+
 import pandas as pd
 import json
 from pydantic import BaseModel
@@ -5,6 +7,7 @@ from typing import Any, Optional, List
 from agents.data_analyst_agent import analyze_csv
 from agents.researcher_agent import web_scrape
 from agents.information_retrieval_agent import fetch_api_data
+from agents.context_memory import save_context, get_context_text
 import ollama
 from helpers.llm_utils import clean_llm_json
 
@@ -118,11 +121,34 @@ def generate_answer(question: str, tools_used: MultiToolCall, data: Optional[pd.
         else:
             agent_outputs[tool.tool] = {"answer": None, "reasoning": "Tool not implemented", "confidence": 0.0}
 
-    return DirectAnswer(
-        answer={
-            "question": question,
-            "tool_outputs": agent_outputs
-        },
-        reasoning="Structured output per tool",
-        confidence=1.0
-    )
+    # Save this run into in-memory context
+    save_context(question, agent_outputs)
+
+    # Build planner’s contextual answer
+    context_text = get_context_text()
+    planner_prompt = f"""
+You are a reasoning agent.
+Context:
+{context_text}
+
+Question: {question}
+
+Tool outputs:
+{json.dumps(agent_outputs, indent=2)}
+
+Provide a final combined answer in JSON with keys:
+- answer
+- reasoning
+- confidence
+"""
+
+    response = ollama.chat(model="llama3:8b", messages=[{"role": "user", "content": planner_prompt}])
+    raw_output = clean_llm_json(response["message"]["content"].strip())
+
+    try:
+        parsed = json.loads(raw_output)
+    except json.JSONDecodeError:
+        parsed = {"answer": "Unable to generate final answer", "reasoning": "Parsing error", "confidence": 0.0}
+
+    return DirectAnswer(**parsed)
+
