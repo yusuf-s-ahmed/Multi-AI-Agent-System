@@ -29,9 +29,9 @@ class ToolSpec(BaseModel):
 
 # Define available tools
 available_tools: List[ToolSpec] = [
-    ToolSpec(name="csv", description="Analyze uploaded business' CSV data for totals, averages, metrics.", requires_csv=True),
+    ToolSpec(name="csv", description="Analyze uploaded company's CSV data for totals, averages, metrics.", requires_csv=True),
     ToolSpec(name="sentiment", description="Analyze sentiment of text entries.", requires_csv=False),
-    ToolSpec(name="api_market", description="Fetch external market and macroeconomic data.", requires_csv=False)
+    ToolSpec(name="api_call", description="Fetch external data.", requires_csv=False)
 ]
 
 # ----------------------------
@@ -75,7 +75,7 @@ def ask_llm(question: str, data: Optional[pd.DataFrame] = None) -> dict:
     tools_json = json.dumps([tool.dict() for tool in available_tools], indent=2)
 
     prompt = f"""
-You are an advanced AI assistant (Gemma 3).
+You are an advanced AI assistant (Llama 3).
 
 Here is the CSV context:
 {csv_text}
@@ -86,8 +86,8 @@ Available tools:
 {tools_json}
 
 Rules:
-1. First, evaluate whether the CSV has enough rows, columns, and relevant information to answer the question.
-2. If the CSV is limited (few rows, missing external context, or unrelated to the question), you must request external tools (e.g., api_market) to complement it.
+1. Always consider both internal CSV data and external context if mentioned in the question.
+2. First, evaluate whether the CSV has enough rows, columns, and relevant information to answer the question.
 3. Only set `"require_csv": true` if the tool genuinely needs the CSV data to run.
 4. If the question explicitly references external context (like "market trends"), you must include the external API tool.
 5. Do not include any explanatory text outside the JSON. Output ONLY valid JSON.
@@ -114,8 +114,9 @@ Tool call (one or more tools):
 }}
 """
 
+
     response = ollama.chat(
-        model="gemma3:4b",
+        model="llama3:8b",
         messages=[{"role": "user", "content": prompt}]
     )
 
@@ -146,14 +147,16 @@ def process_csv_and_question(file_path: str, question: str):
     Returns either DirectAnswer or MultiToolCall.
     Does NOT execute any tools automatically.
     """
-    return ask_llm(question, data=None)
+    csv_data = handle_csv_upload(file_path)
+    return ask_llm(question, data=csv_data)
+
 
 # ----------------------------
 # Run
 # ----------------------------
 if __name__ == "__main__":
-    file_path = "data/sales_data.csv"
-    question = "How was our company performing based on the sales data and the current external macroeconomic market trends?"
+    file_path = "C:\\Users\\yusuf\\Desktop\\AI Agents Prototype\\ai-agents-prototype\\data\\sales_data.csv"  # Example
+    question = "How was our company performing based on the internal CSV sales data and the current external market trends?"
 
     try:
         result = process_csv_and_question(file_path, question)
