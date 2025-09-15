@@ -1,37 +1,60 @@
-import ollama
 import json
 from pydantic import BaseModel
-from helpers.llm_utils import clean_llm_json
 from typing import Any
-from serpapi.google_search import GoogleSearch
 import requests
 from bs4 import BeautifulSoup
+from serpapi import GoogleSearch
+import ollama
+from helpers.llm_utils import clean_llm_json
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+SERPAPI_KEY = os.getenv("SERPAPI_KEY")
 
 class DirectAnswer(BaseModel):
     answer: Any
     reasoning: str
     confidence: float
 
-SERPAPI_KEY = "dde12eee74584a5d1241998b29e6208199f8458a5d0fd7e7b0ee668baeb3ba6d"
-
-def scrape_page(url: str) -> dict:
+def scrape_page(url: str) -> str:
     """Scrape the main text from a web page using requests + BeautifulSoup"""
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
-
         soup = BeautifulSoup(response.text, "html.parser")
         paragraphs = soup.find_all("p")
         text = "\n".join(p.get_text() for p in paragraphs)
-
-        return {"url": url, "text": text[:2000]}  # limit for safety
+        return text[:5000]  # limit to 5000 chars for LLM
     except Exception as e:
-        return {"url": url, "error": str(e)}
+        return f"ERROR: {e}"
+
+def summarize_content(title: str, url: str, content: str) -> str:
+    """Summarise scraped content using gemma3:4b LLM"""
+    prompt = f"""
+You are an expert summarizer. Summarise the following web page content in 2-3 concise sentences:
+
+Title: {title}
+URL: {url}
+Content: {content}
+
+Return strictly plain text summary.
+"""
+    try:
+        response = ollama.chat(
+            model="gemma3:4b",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        summary = response["message"]["content"].strip()
+        return summary
+    except Exception:
+        return "Unable to summarise content."
 
 def web_scrape(query: str) -> DirectAnswer:
-    """Fetch top 3 Google results and scrape their content"""
-    # --- Step 1: Fetch top 3 results from SerpAPI ---
+    """Fetch top 3 Google results, scrape, and summarise each page"""
+    # Step 1: Fetch top 3 results from SerpAPI
     params = {
         "engine": "google",
         "q": query,
@@ -49,21 +72,26 @@ def web_scrape(query: str) -> DirectAnswer:
             confidence=0.0
         )
 
-    # --- Step 2: Scrape each page ---
+    # Step 2: Scrape and summarise each page
     scraped_results = []
     for res in organic_results:
         url = res.get("link")
-        page_data = scrape_page(url)
+        title = res.get("title")
+        snippet = res.get("snippet")
+
+        content = scrape_page(url)
+        summary = summarize_content(title, url, content) if not content.startswith("ERROR") else ""
+
         scraped_results.append({
-            "title": res.get("title"),
+            "title": title,
             "url": url,
-            "snippet": res.get("snippet"),
-            "content": page_data.get("text", ""),
-            "error": page_data.get("error")
+            "snippet": snippet,
+            "content": summary,
+            "error": content if content.startswith("ERROR") else None
         })
 
-    reasoning = f"Fetched and scraped top {len(scraped_results)} Google search results for '{query}'."
-    confidence = 0.9  # placeholder confidence
+    reasoning = f"Fetched, scraped, and summarised top {len(scraped_results)} Google search results for '{query}'."
+    confidence = 0.9
 
     return DirectAnswer(
         answer=scraped_results,
@@ -73,5 +101,5 @@ def web_scrape(query: str) -> DirectAnswer:
 
 # Example usage
 if __name__ == "__main__":
-    result = web_scrape("Coffee")
-    print(result.json(indent=2))
+    result = web_scrape("Recent trends in the energy sector")
+    print(json.dumps(result.dict(), indent=2, ensure_ascii=False))
