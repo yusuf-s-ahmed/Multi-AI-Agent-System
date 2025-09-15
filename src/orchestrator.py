@@ -14,7 +14,7 @@ def process_csv_and_question(file_path: str, question: str):
 
 if __name__ == "__main__":
     file_path = "C:\\Users\\yusuf\\Desktop\\AI Agents Prototype\\ai-agents-prototype\\data\\sales_data.csv"
-    question = "Based on the sales data, benchmark this against our competitors and research into recent financial news to provide a comprehensive summary."
+    question = "Based on the sales data, benchmark this against our competitors in the energy sector, researching recent financial news to provide a comprehensive summary."
 
     result = process_csv_and_question(file_path, question)
     print(json.dumps(result, indent=4, ensure_ascii=False))
