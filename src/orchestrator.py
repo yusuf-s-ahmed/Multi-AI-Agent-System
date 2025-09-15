@@ -1,62 +1,162 @@
 import pandas as pd
-from src.agents.csv_agent import analyze_csv_data
-from src.agents.sentiment_agent import analyze_sentiment
+import ollama
 import json
+import re
+from pydantic import BaseModel, Field, ValidationError
+from typing import Optional, Any, List
 
+# ----------------------------
+# Strict JSON schemas
+# ----------------------------
+class DirectAnswer(BaseModel):
+    answer: Any
+    reasoning: str
+    confidence: float
+
+class ToolCall(BaseModel):
+    tool: str = Field(..., description="The name of the tool to call")
+    details: str = Field(..., description="Instructions for the tool")
+    require_csv: Optional[bool] = Field(False, description="Does the tool require CSV data?")
+
+class MultiToolCall(BaseModel):
+    action: str = Field(..., description="Always 'use_tool'")
+    tools: List[ToolCall]
+
+class ToolSpec(BaseModel):
+    name: str = Field(..., description="Short identifier for the tool")
+    description: str = Field(..., description="What the tool does")
+    requires_csv: bool = Field(False, description="Does this tool require CSV data?")
+
+# Define available tools
+available_tools: List[ToolSpec] = [
+    ToolSpec(name="csv", description="Analyze uploaded business' CSV data for totals, averages, metrics.", requires_csv=True),
+    ToolSpec(name="sentiment", description="Analyze sentiment of text entries.", requires_csv=False),
+    ToolSpec(name="api_market", description="Fetch external market and macroeconomic data.", requires_csv=False)
+]
+
+# ----------------------------
+# CSV Loader
+# ----------------------------
 def handle_csv_upload(file_path: str) -> pd.DataFrame:
-    """
-    Parse the uploaded CSV file into a pandas DataFrame.
-    """
     try:
         return pd.read_csv(file_path)
     except Exception as e:
         raise ValueError(f"Error reading CSV file: {e}")
 
-def analyze_question(question: str) -> str:
+# ----------------------------
+# Clean Markdown JSON
+# ----------------------------
+def clean_llm_json(raw_output: str) -> str:
     """
-    Analyze the user's question and determine the intent.
+    Extracts the first valid JSON object or array from LLM output,
+    even if extra text surrounds it.
     """
-    question = question.lower()
-    if "total" in question or "revenue" in question:
-        return "calculate_total"
-    elif "sentiment" in question or "news" in question:
-        return "analyze_sentiment"
-    else:
-        return "unknown"
+    # Remove code block markers
+    raw_output = raw_output.strip().strip("`")
+    raw_output = raw_output.replace("json\n", "").replace("json", "").strip()
 
-def route_request(intent: str, data, question: str):
-    """
-    Route the request to the appropriate agent based on the intent.
-    """
-    if intent == "calculate_total":
-        # Convert DataFrame to dictionary for the CSV agent
-        data_dict = data.to_dict(orient="list")
-        return analyze_csv_data(data_dict).dict()
-    elif intent == "analyze_sentiment":
-        # Assume the DataFrame has a column "headlines" for sentiment analysis
-        if "headlines" not in data.columns:
-            raise ValueError("The CSV file must contain a 'headlines' column for sentiment analysis.")
-        headlines = data["headlines"].tolist()
-        return analyze_sentiment(headlines).dict()
-    else:
-        return {"error": "Unknown intent. Please ask about revenue or sentiment."}
+    # Regex: find first {...} or [...]
+    match = re.search(r'(\{.*\}|\[.*\])', raw_output, re.DOTALL)
+    if match:
+        return match.group(1)
+    return raw_output
 
+# ----------------------------
+# Ask Gemma
+# ----------------------------
+def ask_llm(question: str, data: Optional[pd.DataFrame] = None) -> dict:
+    """
+    Ask the LLM a question. The LLM can decide whether it can answer directly
+    or if one or more tools from `available_tools` are needed.
+    """
+    data_summary = data.to_csv(index=False) if data is not None else ""
+    csv_text = f"Here is some CSV data:\n{data_summary}" if data_summary else "No CSV data is provided."
+
+    tools_json = json.dumps([tool.dict() for tool in available_tools], indent=2)
+
+    prompt = f"""
+You are an advanced AI assistant (Gemma 3).
+
+Here is the CSV context:
+{csv_text}
+
+Question: {question}
+
+Available tools:
+{tools_json}
+
+Rules:
+1. First, evaluate whether the CSV has enough rows, columns, and relevant information to answer the question.
+2. If the CSV is limited (few rows, missing external context, or unrelated to the question), you must request external tools (e.g., api_market) to complement it.
+3. Only set `"require_csv": true` if the tool genuinely needs the CSV data to run.
+4. If the question explicitly references external context (like "market trends"), you must include the external API tool.
+5. Do not include any explanatory text outside the JSON. Output ONLY valid JSON.
+
+Respond STRICTLY in valid JSON with one of these formats:
+
+Direct answer:
+{{
+  "answer": "...",
+  "reasoning": "...",
+  "confidence": 0.0
+}}
+
+Tool call (one or more tools):
+{{
+  "action": "use_tool",
+  "tools": [
+    {{
+      "tool": "<tool_name_from_available_tools>",
+      "details": "Explain what the tool should do",
+      "require_csv": true|false
+    }}
+  ]
+}}
+"""
+
+    response = ollama.chat(
+        model="gemma3:4b",
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    raw_output = clean_llm_json(response["message"]["content"].strip())
+
+    # Validate JSON strictly
+    try:
+        parsed = json.loads(raw_output)
+        if parsed.get("action") == "use_tool":
+            if "tools" in parsed:
+                return MultiToolCall(**parsed).dict()
+            else:
+                return MultiToolCall(action="use_tool", tools=[ToolCall(**parsed)]).dict()
+        else:
+            return DirectAnswer(**parsed).dict()
+    except (json.JSONDecodeError, ValidationError) as e:
+        return {
+            "error": "Invalid JSON returned by model",
+            "raw_response": raw_output,
+            "validation_error": str(e)
+        }
+
+# ----------------------------
+# Orchestrator
+# ----------------------------
 def process_csv_and_question(file_path: str, question: str):
     """
-    Orchestrate the process of handling a CSV file and a question.
+    Returns either DirectAnswer or MultiToolCall.
+    Does NOT execute any tools automatically.
     """
-    data = handle_csv_upload(file_path)
-    intent = analyze_question(question)
-    result = route_request(intent, data, question)
-    return result
+    return ask_llm(question, data=None)
 
+# ----------------------------
+# Run
+# ----------------------------
 if __name__ == "__main__":
-    # Example usage
-    file_path = "data/sales_data.csv"  # Replace with the path to your CSV file
-    question = "What is the total revenue?"  # Replace with your question
+    file_path = "data/sales_data.csv"
+    question = "How was our company performing based on the sales data and the current external macroeconomic market trends?"
 
     try:
         result = process_csv_and_question(file_path, question)
-        print(json.dumps(result, indent=4))
+        print(json.dumps(result, indent=4, ensure_ascii=False))
     except Exception as e:
-        print(f"Error: {e}")
+        print(json.dumps({"error": str(e)}, indent=4))
