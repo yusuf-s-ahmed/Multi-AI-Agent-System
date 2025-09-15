@@ -4,6 +4,7 @@ import json
 import re
 from pydantic import BaseModel, Field, ValidationError
 from typing import Optional, Any, List
+from helpers.llm_utils import clean_llm_json
 
 # ----------------------------
 # Strict JSON schemas
@@ -44,64 +45,17 @@ def handle_csv_upload(file_path: str) -> pd.DataFrame:
         raise ValueError(f"Error reading CSV file: {e}")
 
 # ----------------------------
-# Clean Markdown JSON
+# Step 1: Select tools
 # ----------------------------
-def clean_llm_json(raw_output: str) -> str:
-    """
-    Extracts the first valid JSON object or array from LLM output,
-    even if extra text surrounds it.
-    """
-    # Remove code block markers
-    raw_output = raw_output.strip().strip("`")
-    raw_output = raw_output.replace("json\n", "").replace("json", "").strip()
-
-    # Regex: find first {...} or [...]
-    match = re.search(r'(\{.*\}|\[.*\])', raw_output, re.DOTALL)
-    if match:
-        return match.group(1)
-    return raw_output
-
-# ----------------------------
-# Ask Gemma
-# ----------------------------
-def ask_llm(question: str, data: Optional[pd.DataFrame] = None) -> dict:
-    """
-    Ask the LLM a question. The LLM can decide whether it can answer directly
-    or if one or more tools from `available_tools` are needed.
-    """
+def select_tools(question: str, data: Optional[pd.DataFrame] = None) -> MultiToolCall:
     data_summary = data.to_csv(index=False) if data is not None else ""
     csv_text = f"Here is some CSV data:\n{data_summary}" if data_summary else "No CSV data is provided."
-
     tools_json = json.dumps([tool.dict() for tool in available_tools], indent=2)
 
     prompt = f"""
-You are an advanced AI assistant (Llama 3).
+You are an advanced AI assistant. Based on the question and CSV data below, decide which tools to use.  
+Do NOT produce a full answer, only return JSON in this format:
 
-Here is the CSV context:
-{csv_text}
-
-Question: {question}
-
-Available tools:
-{tools_json}
-
-Rules:
-1. Always consider both internal CSV data and external context if mentioned in the question.
-2. First, evaluate whether the CSV has enough rows, columns, and relevant information to answer the question.
-3. Only set `"require_csv": true` if the tool genuinely needs the CSV data to run.
-4. If the question explicitly references external context (like "market trends"), you must include the external API tool.
-5. Do not include any explanatory text outside the JSON. Output ONLY valid JSON.
-
-Respond STRICTLY in valid JSON with one of these formats:
-
-Direct answer:
-{{
-  "answer": "...",
-  "reasoning": "...",
-  "confidence": 0.0
-}}
-
-Tool call (one or more tools):
 {{
   "action": "use_tool",
   "tools": [
@@ -112,50 +66,80 @@ Tool call (one or more tools):
     }}
   ]
 }}
+
+CSV context:
+{csv_text}
+
+Question: {question}
+
+Available tools:
+{tools_json}
+
+Rules:
+- Only include tools actually needed to answer the question.
+- Always include "api_call" if the question requires external context.
+- Output strictly valid JSON.
 """
-
-
     response = ollama.chat(
         model="llama3:8b",
         messages=[{"role": "user", "content": prompt}]
     )
-
     raw_output = clean_llm_json(response["message"]["content"].strip())
+    parsed = json.loads(raw_output)
+    return MultiToolCall(**parsed)
 
-    # Validate JSON strictly
-    try:
-        parsed = json.loads(raw_output)
-        if parsed.get("action") == "use_tool":
-            if "tools" in parsed:
-                return MultiToolCall(**parsed).dict()
-            else:
-                return MultiToolCall(action="use_tool", tools=[ToolCall(**parsed)]).dict()
-        else:
-            return DirectAnswer(**parsed).dict()
-    except (json.JSONDecodeError, ValidationError) as e:
-        return {
-            "error": "Invalid JSON returned by model",
-            "raw_response": raw_output,
-            "validation_error": str(e)
-        }
+# ----------------------------
+# Step 2: Generate final answer
+# ----------------------------
+def generate_answer(question: str, tools_used: MultiToolCall, data: Optional[pd.DataFrame] = None) -> DirectAnswer:
+    data_summary = data.to_csv(index=False) if data is not None else ""
+    tools_json = json.dumps([tool.dict() for tool in tools_used.tools], indent=2)
+
+    prompt = f"""
+You are an advanced AI assistant. Based on the question, CSV data, and tools selected, produce a final answer.
+
+Question: {question}
+
+CSV data:
+{data_summary if data_summary else 'No CSV provided'}
+
+Tools selected:
+{tools_json}
+
+Rules:
+- Format output strictly in JSON:
+{{
+  "answer": "...",
+  "reasoning": "...",
+  "confidence": 0.0
+}}
+- Include reasoning that explains how tools were used.
+"""
+    response = ollama.chat(
+        model="gemma3:4b",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    raw_output = clean_llm_json(response["message"]["content"].strip())
+    parsed = json.loads(raw_output)
+    return DirectAnswer(**parsed)
 
 # ----------------------------
 # Orchestrator
 # ----------------------------
 def process_csv_and_question(file_path: str, question: str):
-    """
-    Returns either DirectAnswer or MultiToolCall.
-    Does NOT execute any tools automatically.
-    """
     csv_data = handle_csv_upload(file_path)
-    return ask_llm(question, data=csv_data)
-
+    tools_used = select_tools(question, csv_data)
+    final_answer = generate_answer(question, tools_used, csv_data)
+    return {
+        "tools_used": tools_used.dict(),
+        "final_answer": final_answer.dict()
+    }
 
 # ----------------------------
 # Run
 # ----------------------------
 if __name__ == "__main__":
-    file_path = "C:\\Users\\yusuf\\Desktop\\AI Agents Prototype\\ai-agents-prototype\\data\\sales_data.csv"  # Example
+    file_path = "C:\\Users\\yusuf\\Desktop\\AI Agents Prototype\\ai-agents-prototype\\data\\sales_data.csv"
     question = "How was our company performing based on the internal CSV sales data and the current external market trends?"
 
     try:
