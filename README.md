@@ -17,19 +17,17 @@ This project allows you to upload a CSV file, ask a question, and let AI agents 
 ai-agents-prototype
 ├── src
 │   ├── agents
-│   │   ├── csv_agent.py        # Implementation of the CSV analysis agent
-│   │   ├── sentiment_agent.py   # Implementation of the news sentiment analysis agent
-│   │   └── __init__.py         # Initializes the agents package
+│   │   ├── data_analyst_agent.py        # Analyses input data 
+│   │   ├── researcher_agent.py              # Conducts research by web scraping
+|   |   └── information_retrieval_agent.py   # Fetches data using real-time APIs
+|   |   └── planner_agent.py                 # Communicates with research, data analyst, info. retreival agents
+│   │   └── __init__.py                      # Initializes the agents package
 │   ├── helpers
 │   │   ├── llm_utils.py        # Utility functions for interacting with the LLM
-│   │   ├── json_utils.py       # Functions for handling JSON data
 │   │   └── __init__.py         # Initializes the helpers package
 │   ├── orchestrator.py          # Central logic for coordinating agent calls
 │   └── __init__.py             # Initializes the main package
-├── tests
-│   ├── test_agents.py           # Unit tests for agent modules
-│   ├── test_helpers.py          # Unit tests for helper functions
-│   └── __init__.py             # Initializes the tests package
+|
 ├── requirements.txt             # Lists project dependencies
 ├── README.md                    # Project documentation
 └── .gitignore                   # Specifies files to ignore in version control
@@ -56,23 +54,24 @@ ai-agents-prototype
 
 ## Usage
 
-To run the prototype, execute the orchestrator script:
+To run the prototype, get an API key from SerpAPI, make a .env file then execute the orchestrator script:
 ```
 python src/orchestrator.py
 ```
 
 This will trigger the agents to analyze the provided data and print the results.
 
-## Testing
+## Next Steps
 
-To run the tests, ensure you are in the virtual environment and execute:
-```
-pytest tests/
-```
-
-## Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request for any improvements or bug fixes.
+These are the next steps:
+- Add Yahoo Finance API to the information retrieval agent.
+- Fix final LLM output from executing orchestrator.py script.
+- Make the planner agent's child agents execute in parallel using multithreading.
+- Make the final answer refer the the context memory to make a comprehensive report.
+- Switch out Llama-3 8B and Gemma-3 4B for GPT-4 for rapid prototyping.
+- Expose agents as Flask endpoints, to allow requests using Postman, front-end is not really needed.
+- Present the Multi-Agent AI system applied in different domains, finance, e-commerce, etc. 
+- Recreate in Runa.
 
 ## License
 
