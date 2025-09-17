@@ -94,24 +94,6 @@ ai-agents-prototype
 └── .env                         # File for storing sensitive API keys 
 ```
 
-### Setup Instructions
-
-1. *Clone the Repository*
-   ```
-   git clone https://github.com/yusuf-s-ahmed/Multi-AI-Agent-System.git
-   cd ai-agents-prototype
-   ```
-
-2. *Install Dependencies*
-   It is recommended to use a virtual environment. You can create one using:
-   ```
-   python -m venv venv
-   source venv/bin/activate  # On Windows use `venv\Scripts\activate`
-   ```
-   Then install the required packages:
-   ```
-   pip install -r requirements.txt
-   ```
 
 ### Next Steps
 
