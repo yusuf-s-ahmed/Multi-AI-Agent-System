@@ -11,6 +11,7 @@ import ollama
 from agents.data_analyst_agent import analyze_csv
 from agents.researcher_agent import web_scrape
 from agents.context_memory import save_context, get_context_text
+from agents.information_retrieval_agent import fetch_stock_data
 from helpers.llm_utils import clean_llm_json
 
 # ----------------------------
@@ -68,6 +69,9 @@ def extract_tickers(text: str) -> list[str]:
 # ----------------------------
 # Fetch stock data
 # ----------------------------
+
+"""
+
 def fetch_stock_data(ticker: str) -> DirectAnswer:
     try:
         stock = yf.Ticker(ticker)
@@ -98,6 +102,8 @@ def fetch_stock_data(ticker: str) -> DirectAnswer:
             confidence=0.0
         )
 
+"""
+
 # ----------------------------
 # Summarize stock (optional)
 # ----------------------------
@@ -117,6 +123,7 @@ Return strictly plain text.
         response = ollama.chat(model="gemma3:4b", messages=[{"role": "user", "content": prompt}])
         return response["message"]["content"].strip()
     except Exception as e:
+        print("Unable to summarise stock data:")
         return f"Unable to summarise stock data: {e}"
 
 # ----------------------------
@@ -179,12 +186,16 @@ def generate_answer(question: str, tools_used: MultiToolCall, data: Optional[pd.
         if tool.tool == "csv":
             res = analyze_csv(df=data)
             agent_outputs["csv"] = res.dict()
+            print("[DEBUG] [40% COMPLETED] CSV analysis complete")
 
         elif tool.tool == "api_call":
             tickers = extract_tickers(tool.details or question)
+            print("[DEBUG] [45% COMPLETED] ticker(s) extracted", tickers)
             api_results = {}
             for ticker in tickers:
+                count = 1
                 res = fetch_stock_data(ticker)
+                print(f"[DEBUG] [50% COMPLETED] API call complete for ticker {count}: ", ticker)
                 if res.answer:
                     formatted = (
                         f"Symbol: {res.answer.get('symbol')}\n"
@@ -195,19 +206,26 @@ def generate_answer(question: str, tools_used: MultiToolCall, data: Optional[pd.
                         f"Shares Outstanding: {res.answer.get('sharesOutstanding')}"
                     )
                     api_results[ticker] = {"raw": res.dict(), "formatted": formatted}
+                    print("Stock data found for: ", ticker)
                 else:
                     api_results[ticker] = res.dict()
+                    print("Stock data not found for:", ticker)
+                count += 1
+
             agent_outputs["api_call"] = api_results
 
         elif tool.tool == "web_scrape":
             res = web_scrape(query=question)
             agent_outputs["web_scrape"] = res.dict()
+            print("[DEBUG] [50% COMPLETED] web scraping complete")
 
         else:
             agent_outputs[tool.tool] = {"answer": None, "reasoning": "Tool not implemented", "confidence": 0.0}
 
     save_context(question, agent_outputs)
     context_text = get_context_text()
+
+    print("[DEBUG] [55% COMPLETED] web scraping complete")
 
     planner_prompt = f"""
 You are a reasoning agent.
@@ -228,8 +246,12 @@ Instructions:
 - Return JSON with keys: answer, reasoning, confidence
 """
 
+    print("[DEBUG] [Attempting to generate final answer]")
+
     response = ollama.chat(model="gemma3:4b", messages=[{"role": "user", "content": planner_prompt}])
     raw_output = clean_llm_json(response["message"]["content"].strip())
+
+    print("[DEBUG] [Successfully generated final answer]")
 
     try:
         parsed = json.loads(raw_output)

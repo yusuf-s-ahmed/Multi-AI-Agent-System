@@ -3,6 +3,10 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from mplfinance.original_flavor import candlestick_ohlc
+import matplotlib
+matplotlib.use('TkAgg')
+
+
 
 plt.rcParams['font.family'] = 'monospace'
 
@@ -36,10 +40,13 @@ def visualize(tickers: list):
         candlestick_ohlc(ax, data.values, width=0.5, colorup='#2ECC71', colordown='#E74C3C')
 
     plt.tight_layout()
-    plt.show()
+    plt.show(block=False)
+    plt.pause(15)  # show for 15 seconds before continuing
+    plt.close(fig)
+
 
 
 # Example usage:
 
-tickers = ['AAPL', 'MSFT', 'GOOGL']
-visualize(tickers)
+# tickers = ['AAPL', 'MSFT', 'GOOGL']
+# visualize(tickers)
