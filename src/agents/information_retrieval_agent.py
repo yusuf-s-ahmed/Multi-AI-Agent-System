@@ -6,6 +6,7 @@ from typing import Any
 import yfinance as yf
 import ollama
 # from helpers.llm_utils import clean_llm_json
+from helpers.stock_plot import visualize
 
 # ----------------------------
 # Schemas
@@ -18,6 +19,7 @@ class DirectAnswer(BaseModel):
 # ----------------------------
 # Fetch stock data safely
 # ----------------------------
+
 def fetch_stock_data(ticker: str) -> DirectAnswer:
     """
     Fetch stock data from Yahoo Finance for the given ticker using fast_info.
@@ -28,6 +30,7 @@ def fetch_stock_data(ticker: str) -> DirectAnswer:
         fast = stock.fast_info
 
         if not fast or fast.get("lastPrice") is None:
+            print("No financial data found for ticker:", ticker)
             return DirectAnswer(
                 answer={},
                 reasoning=f"No financial data found for ticker '{ticker}' (possibly invalid or delisted)",
@@ -43,6 +46,8 @@ def fetch_stock_data(ticker: str) -> DirectAnswer:
             "sharesOutstanding": fast.get("sharesOutstanding"),
         }
 
+        visualize([ticker])
+
         return DirectAnswer(
             answer=key_data,
             reasoning=f"Fetched Yahoo Finance fast_info data for ticker '{ticker}'.",
@@ -50,6 +55,7 @@ def fetch_stock_data(ticker: str) -> DirectAnswer:
         )
 
     except Exception as e:
+        print("Error fetching data for ticker:", ticker)
         return DirectAnswer(
             answer={},
             reasoning=f"Error fetching data for ticker '{ticker}': {e}",
