@@ -4,6 +4,9 @@ This project is a multi-agent AI system that dynamically selects between interna
 
 ### Example:
 
+![Output of Information Retreival AI Agent](data/HSBC_graph.png)
+
+
 Question: *Based on the sales data, benchmark this against our competitors in the UK financial sector, researching recent financial news, and getting real-time stock data from Yahoo Finance API to provide a comprehensive summary.*
 
 Data: *`data/sales_data.csv`*
