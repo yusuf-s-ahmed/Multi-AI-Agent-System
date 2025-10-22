@@ -8,7 +8,7 @@ matplotlib.use('TkAgg')
 
 
 
-plt.rcParams['font.family'] = 'monospace'
+plt.rcParams['font.family'] = 'Consolas'
 
 def visualize(tickers: list):
     end = dt.datetime.today()

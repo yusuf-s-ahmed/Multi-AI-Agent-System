@@ -1,12 +1,11 @@
-# orchestrator.py
-
+from customtkinter import *
+import threading
 import json
 import traceback
 from agents.planner_agent import handle_csv_upload, select_tools, generate_answer
 from agents.context_memory import get_context_text
 
 def log_status(stage: str, message: str):
-    """Prints formatted debug messages for visibility."""
     print(f"[DEBUG] [{stage}] {message}")
 
 def process_csv_and_question(file_path: str, question: str):
@@ -21,16 +20,9 @@ def process_csv_and_question(file_path: str, question: str):
         log_status("30% COMPLETED", f"Tools selected: {[t.tool for t in tools_used.tools]}")
 
         log_status("30% COMPLETED", "Generating final answer using selected tools")
-
-        # ---
-
         final_answer = generate_answer(question, tools_used, csv_data)
 
-        # ---
-
         log_status("90% COMPLETED", "Final answer generated successfully")
-
-        log_status("90% COMPLETED", "Retrieving context memory")
         context_text = get_context_text()
 
         result = {
@@ -40,12 +32,23 @@ def process_csv_and_question(file_path: str, question: str):
         }
 
         log_status("100% COMPLETED", "Process completed successfully")
+
+        print("\n=== FINAL OUTPUT ===")
+        print(json.dumps(result["tools_used"], indent=4, ensure_ascii=False))
+        print(json.dumps(result["final_answer"], indent=4, ensure_ascii=False))
+        print("\n=== CONTEXT MEMORY IS SAVED ===")
+
         return result
 
     except Exception as e:
         log_status("ERROR", f"An error occurred: {e}")
         traceback.print_exc()
         return {"error": str(e)}
+
+def run_process_threaded(file_path, question):
+    """Run process in a background thread so the UI stays responsive."""
+    thread = threading.Thread(target=process_csv_and_question, args=(file_path, question))
+    thread.start()
 
 if __name__ == "__main__":
     file_path = "data/sales_data.csv"
@@ -56,12 +59,62 @@ if __name__ == "__main__":
         "to provide a comprehensive summary."
     )
 
-    result = process_csv_and_question(file_path, question)
-    print("\n=== FINAL OUTPUT ===")
-    # print(json.dumps(result, indent=4, ensure_ascii=False))
+    # Appearance mode should be set before creating widgets
+    set_appearance_mode("Light")
 
-    print(json.dumps(result["tools_used"], indent=4, ensure_ascii=False))
-    print(json.dumps(result["final_answer"], indent=4, ensure_ascii=False))
+    app = CTk()
+    app.geometry("700x500")
+    app.title("Multi-AI Agent Prototype")
 
-    print("\n=== CONTEXT MEMORY IS SAVED ===")
-    context = result["context_memory"]
+    # --- Title ---
+    label = CTkLabel(
+        master=app,
+        text="Multi-AI Agent Prototype",
+        font=("Consolas", 20),
+        text_color="black"
+    )
+    label.place(relx=0.5, rely=0.1, anchor=CENTER)
+
+    # --- Question ---
+    label2 = CTkLabel(
+        master=app,
+        text=f"Input: {question}",
+        font=("Consolas", 15),
+        text_color="black",
+        wraplength=600,
+        justify="center"
+    )
+    label2.place(relx=0.5, rely=0.3, anchor=CENTER)
+
+    # --- Available Agents ---
+    label3 = CTkLabel(
+        master=app,
+        text="Available Agents: Data Analyst Agent, Planner Agent, Research Agent, Stock Analysis Agent.",
+        font=("Consolas", 15),
+        text_color="black",
+        wraplength=600,
+        justify="center"
+    )
+    label3.place(relx=0.5, rely=0.45, anchor=CENTER)
+
+    # --- Available LLMs ---
+    label4 = CTkLabel(
+        master=app,
+        text="Available Large Language Models (LLMs): Gemma-3 4B, Llama-3 8B.",
+        font=("Consolas", 15),
+        text_color="black",
+        wraplength=600,
+        justify="center"
+    )
+    label4.place(relx=0.5, rely=0.55, anchor=CENTER)
+
+    # --- Run Button ---
+    btn = CTkButton(
+        master=app,
+        text="Run",
+        font=("Consolas", 15),
+        command=lambda: run_process_threaded(file_path, question)
+    )
+    btn.place(relx=0.5, rely=0.7, anchor=CENTER)
+
+    app.mainloop()
